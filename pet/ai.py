@@ -1,4 +1,4 @@
-"""宠物技能与AI系统 - 含7个bug"""
+"""宠物技能与AI系统"""
 import time
 from dataclasses import dataclass, field
 
@@ -21,17 +21,18 @@ class Pet:
     buffs: list = field(default_factory=list)
     alive: bool = True
     revive_cd: float = 0
+    revive_count: int = 0
+    max_revives: int = 3
+    attack_order: str = ""
 
 class PetAI:
+    REVIVE_COOLDOWN = 30.0
+
     def __init__(self):
         self.pets: dict[str, Pet] = {}
-        self.owner_skill_cd: dict[str, float] = {}  # bug1: 共用
+        self.owner_skill_cd: dict[str, float] = {}
 
     def use_skill(self, pet_id: str, skill: str, current_time: float) -> bool:
-        # bug1: 和主人技能CD共用
-        if pet_id in self.owner_skill_cd:
-            if current_time < self.owner_skill_cd[pet_id]:
-                return False
         pet = self.pets[pet_id]
         if skill in pet.skill_cd and current_time < pet.skill_cd[skill]:
             return False
@@ -39,32 +40,48 @@ class PetAI:
         return True
 
     def select_target(self, pet_id: str, enemies: list[Enemy]) -> str:
-        # bug2: 只看距离
         if not enemies:
             return ""
-        return min(enemies, key=lambda e: e.distance).eid
+
+        def score(e: Enemy) -> float:
+            threat = 50.0 if e.is_casting else 0.0
+            hp_weight = max(0.0, 100.0 - e.hp)
+            distance_penalty = e.distance * 2.0
+            return threat + hp_weight - distance_penalty
+
+        return max(enemies, key=score).eid
 
     def update_position(self, pet_id: str, new_pos: tuple):
-        # bug3: 位置更新延迟
         pet = self.pets[pet_id]
-        # 应该立即更新
-        pass
+        pet.position = new_pos
 
     def auto_loot(self, pet_id: str, item: str, backpack_space: int) -> bool:
-        # bug4: 不检查背包空间
+        if backpack_space <= 0:
+            return False
         return True
 
     def switch_mode(self, pet_id: str, mode: str):
-        # bug5: 切换模式不重置目标
         pet = self.pets[pet_id]
         pet.mode = mode
+        pet.target = ""
+        pet.attack_order = ""
 
     def calculate_skill_damage(self, pet_id: str, base_damage: float) -> float:
-        # bug6: 不算装备和buff
-        return base_damage
+        pet = self.pets[pet_id]
+        equipment_bonus = sum(pet.equipment.values())
+        buff_bonus = sum(b.get("value", 0) for b in pet.buffs if b.get("type") == "atk")
+        owner_synergy = 1.1
+        return (base_damage + equipment_bonus + buff_bonus) * owner_synergy
 
     def revive(self, pet_id: str, current_time: float) -> bool:
-        # bug7: 无复活冷却
         pet = self.pets[pet_id]
+        if pet.alive:
+            return False
+        if current_time < pet.revive_cd:
+            return False
+        if pet.revive_count >= pet.max_revives:
+            return False
         pet.alive = True
+        pet.revive_count += 1
+        pet.revive_cd = current_time + self.REVIVE_COOLDOWN
         return True
